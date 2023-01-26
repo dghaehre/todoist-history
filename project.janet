@@ -7,6 +7,6 @@
   :version "0.0.1")
 
 (declare-executable
-  :name "th"
+  :name "todoist-history"
   :entry "./src/main.janet"
   :install true)
