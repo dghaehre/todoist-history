@@ -1,7 +1,7 @@
-(import sh)
+(import spork/sh :as sh)
+(import spork/json :as json)
 (use spork/argparse)
 (use ./colors)
-(import json)
 
 (def argparse-params
   ["Get your todoist history"
@@ -24,8 +24,8 @@
   (dyn :todoist/token))
 
 (defn get-todoist [path]
-  (let [auth (string "Authorization: Bearer " (token))
-        res (sh/$< curl -s -X GET ,path  -H ,auth)]
+  (let [auth  (string "Authorization: Bearer " (token))
+        res   (sh/exec-slurp "curl" "-s" "-X" "GET" path "-H" auth)]
     (json/decode res)))
 
 (defn get-time-str [days]
