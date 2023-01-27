@@ -34,24 +34,33 @@
         {:year y :month m :month-day d} (os/date t)]
     (string y "-" (+ 1 m) "-" (+ 1 d) "T00:00:00")))
 
-# TODO: yesterday etc.
+# TODO: monday, tuesday etc.
 (defn display-date [str]
-  "from something like:
+  ```
+  from something like:
   2023-01-26T08:35:02.000000Z
   to
-  26/01/2023"
-  (let [date '{:year (<- :d+)
-               :month (<- :d+)
-               :day (<- :d+)
-               :main (* :year "-" :month "-" :day)}
-        m      (peg/match date str)]
+  26/01/2023
+  or
+  yesterday
+  ```
+
+  (defn yesterday? [y m d]
+    (let [y (-> y (int/s64) (int/to-number))
+          m (-> m (int/s64) (int/to-number))
+          d (-> d (int/s64) (int/to-number))
+          t (- (os/time) (* 60 60 24))
+          {:year yy :month mm :month-day dd} (os/date t)]
+      (and (= y yy) (= m (+ 1 mm)) (= d (+ 1 dd)))))
+
+  (let [date '{:main (* (<- :d+) "-" (<- :d+) "-" (<- :d+))}
+        m          (peg/match date str)]
     (if (nil? m) ""
       (let [[y m d] m]
-        (string d "/" m "/" y)))))
-
-(defn print-return [p]
-  (pp p)
-  p)
+        (cond
+          (yesterday? y m d) "yesterday "
+          # Default:
+          (string d "/" m "/" y))))))
 
 (defn get-project-id [name]
   "Gets project id based on name"
@@ -80,7 +89,7 @@
   (let [s (string ;xs)
         l (length s)]
     (if (> l width)
-      (string/slice s 0 (+ 1 width))
+      (string/slice s 0 width)
       (string s (string/repeat " " (- width l))))))
 
 (defn attach-project [items projects project-flag]
