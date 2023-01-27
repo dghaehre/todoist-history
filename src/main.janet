@@ -35,7 +35,7 @@
     (string y "-" (+ 1 m) "-" (+ 1 d) "T00:00:00")))
 
 # TODO: monday, tuesday etc.
-(defn display-date [str]
+(defn display-date [time str]
   ```
   from something like:
   2023-01-26T08:35:02.000000Z
@@ -44,23 +44,25 @@
   or
   yesterday
   ```
-
-  (defn yesterday? [y m d]
-    (let [y (-> y (int/s64) (int/to-number))
-          m (-> m (int/s64) (int/to-number))
-          d (-> d (int/s64) (int/to-number))
-          t (- (os/time) (* 60 60 24))
+  (defn is-day? [day y m d]
+    (let [t (- time (match day
+                      :yesterday (* 60 60 24)
+                      :today     0))
           {:year yy :month mm :month-day dd} (os/date t)]
       (and (= y yy) (= m (+ 1 mm)) (= d (+ 1 dd)))))
 
   (let [date '{:main (* (<- :d+) "-" (<- :d+) "-" (<- :d+))}
         m          (peg/match date str)]
     (if (nil? m) ""
-      (let [[y m d] m]
+      (let [[y mm d] m
+            ynumber (-> y   (int/s64) (int/to-number))
+            mnumber (-> mm  (int/s64) (int/to-number))
+            dnumber (-> d   (int/s64) (int/to-number))]
         (cond
-          (yesterday? y m d) "yesterday "
+          (is-day? :yesterday ynumber mnumber dnumber) "yesterday "
+          (is-day? :today     ynumber mnumber dnumber) "today     "
           # Default:
-          (string d "/" m "/" y))))))
+          (string d "/" mm "/" y))))))
 
 (defn get-project-id [name]
   "Gets project id based on name"
@@ -110,9 +112,10 @@
   (let [items                 (get data "items")
         projects              (get data "projects")
         project-flag          (get args "project")
-        project-name-length   (if (nil? project-flag) 10 (+ 1 (length project-flag)))]
+        project-name-length   (if (nil? project-flag) 10 (+ 1 (length project-flag)))
+        now                   (os/time)]
     (loop [i :in (-> (reverse items) (attach-project projects project-flag))]
-      (let [completed     (->> (get i "completed_at") (display-date))
+      (let [completed     (->> (get i "completed_at") (display-date now))
             project-name  (string-with-width project-name-length "#" (get i :project-name "no content"))
             content       (string-with-width 50 (get i "content" "no content"))]
         (print (color :dark-gray completed) " "
