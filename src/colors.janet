@@ -1,4 +1,7 @@
 # Ansi terminal colors
+#
+# Compliant with: https://no-color.org/
+#
 # TODO: move to a separate repo
 # Taken from: https://github.com/janet-lang/janet/blob/master/examples/colors.janet
 (def- colormap
@@ -37,9 +40,24 @@
    :bright-white 97
    :bg-bright-white 107})
 
+(defn no-color []
+  "Checks if you have set the NO_COLOR environment variable.
+  Also stores the result in a dynamic variable for future use."
+  (let [no-color-dyn (dyn :color/no-color)]
+    (cond
+      (not (nil? no-color-dyn)) no-color-dyn
+      # If :color/no-color has not been set,
+      # we check env for env and set it
+      (let [no-color-env (os/getenv "NO_COLOR")
+            no-color     (and (string? no-color-env) (not= no-color-env ""))]
+         (setdyn :color/no-color no-color)
+         no-color))))
+
 (defn color
   "Take a string made by concatenating xs and colorize it for an ANSI terminal."
   [c & xs]
-  (def code (get colormap c))
-  (if (not code) (error (string "color " c " unknown")))
-  (string "\e[" code "m" ;xs "\e[0m"))
+  (let [code (get colormap c)]
+    (cond
+      (no-color) (string ;xs)
+      (not code) (error (string "color " c " unknown"))
+      (string "\e[" code "m" ;xs "\e[0m"))))
