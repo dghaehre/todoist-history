@@ -6,7 +6,7 @@
 (def argparse-params
   ["Get your todoist history"
    "limit"    {:kind :option
-               :help "limit"
+               :help "Limit is per request, not total. Works best if dont specify a project with children."
                :short "l"}
    "days"     {:kind :option
                :help "days"
@@ -71,10 +71,43 @@
                   (get _ 0)
                   (get _ "id"))]
     (if (nil? id)
-      (do
-        (print "No such project with name: " name)
-        (os/exit 1))
+      (error (string "No such project with name: " name))
       id)))
+
+(defn get-project-ids [name]
+  "Gets project ids based on name
+
+  Returns the project id for the given name,
+  and all its children as a map
+  [{:name \"name\"
+    :id  \"123\"}]
+  or fails if name is not matching
+  "
+  (defn project->result [p]
+    {:name (get p "name")
+     :id   (get p "id")})
+
+  (defn get-children [parent-id projects &opt accum]
+    (default accum @[])
+    (loop [p :in projects
+             :when (= parent-id (get p "parent_id"))]
+      (array/push accum (project->result p))
+      # And its children
+      (let [ids (get-children (get p "id") projects)]
+        (when (not= (length ids) 0)
+          (array/push accum ;ids))))
+    accum)
+
+  (let [projects    (get-todoist "https://api.todoist.com/rest/v2/projects") 
+        org-project (as?-> projects _
+                      (filter (fn [p] (= name (get p "name"))) _)
+                      (get _ 0))
+        org-id      (get org-project "id")]
+    (when (nil? org-id)
+      (error (string "No such project with name: " name)))
+
+    (get-children org-id projects @[(project->result org-project)])))
+
 
 (defn get-completed [args]
   (let [days          (-> (get args "days" "0") (int/s64) (int/to-number))
@@ -86,6 +119,66 @@
         project       (if (nil? project-id) "" (string "&project_id=" project-id))]
     (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since project)
         (get-todoist))))
+
+(defn merge-items-and-project-ids [{:items items :project-ids project-ids}]
+  (defn merge-project [item]
+    (let [project-id (get item "project_id")
+          project    (as?-> project-ids _
+                       (filter |(= project-id (get $ :id)) _)
+                       (get _ 0))]
+      (if (nil? project)
+        (error (string "No such project with id when merging: " project-id))
+        (merge item {:project-name (get project :name)}))))
+  (map merge-project items))
+
+# {:items @[]
+#  :projects @[]}
+(defn make-result [{"items" items "projects" projects}]
+  {:items items
+   :project-ids (map (fn [p] {:name (get p "name") :id (get p "id")}) projects)})
+
+# If we have multiple project ids, we need to multiple requests
+# or else we only need to do one request, but then we have no way of knowing
+# all of the projects that are in the result..
+(defn get-completed-new [args]
+ (let [days          (-> (get args "days" "0") (int/s64) (int/to-number))
+       limit         (string "limit=" (get args "limit" "200"))
+       since         (if (= days 0) "" (string "&since=" (get-time-str days)))
+       project-name  (get args "project")
+       project-ids   (if (or (= project-name "") (nil? project-name)) nil
+                         (get-project-ids project-name))]
+       # project       (if (nil? project-id) "" (string "&project_id=" project-id))]
+   (if (or (= project-name "") (nil? project-name))
+
+     # No project name, just do one request
+     # How to handle project names now...?
+     (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since)
+         (get-todoist)
+         (make-result)
+         (merge-items-and-project-ids))
+
+     # We have a project name, do multiple requests
+     (let [project-ids (get-project-ids project-name)]
+       (var items @[])
+       (loop [{:id id :name name} :in project-ids]
+         (def res (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since (string "&project_id=" id))
+                      (get-todoist)
+                      (get "items")))
+         (array/push items ;res))
+       (merge-items-and-project-ids {:items items
+                                     :project-ids project-ids})))))
+
+      
+
+
+(defn get-completed-with-projects-ids [limit since project-ids]
+  (var result @[])
+  (loop [p :in project-ids]
+    (let [project (string "&project_id=" (get p :id))
+          res     (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since project)
+                      (get-todoist))]
+      (array/push result res))) # Hm...............
+  result)
 
 (defn string-with-width [width & xs]
   (let [s (string ;xs)
@@ -108,6 +201,8 @@
     (map attach items)
     (map attach-flag items)))
 
+# (defn attach-projects [items projects-ids])
+
 (defn display [data args]
   (let [items                 (get data "items")
         projects              (get data "projects")
@@ -123,10 +218,60 @@
                content)))
     (print (string "Total: " (length items)))))
 
+(defn display-new [items]
+  (let [project-name-length   20 # TODO
+        now                   (os/time)]
+    (loop [i :in items]
+      (let [completed     (->> (get i "completed_at") (display-date now))
+            project-name  (string-with-width project-name-length "#" (get i :project-name "no content"))
+            content       (string-with-width 50 (get i "content" "no content"))]
+        (print (color :dark-gray completed) " "
+               (color :cyan project-name) " "
+               content)))
+    (print (string "Total: " (length items)))))
+
+
+# (defn display-new [items project-ids]
+#   "items with :project-name"
+#   (let [project-name-length   10 # TODO: Get project name length from project-ids
+#         now                   (os/time)]
+#     (loop [i :in (reverse items)]
+#       (printf "%+v" i)
+#       (let [completed     (->> (get i "completed_at") (display-date now))
+#             project-name  (string-with-width project-name-length "#" (get i :project-name "no content"))
+#             content       (string-with-width 50 (get i "content" "no content"))]
+#         (print (color :dark-gray completed) " "
+#                (color :cyan project-name) " "
+#                content)))
+#     (print (string "Total: " (length items)))))
+
+# (defn sort-by-completed-at [item]
+#   (let [c (get item "completed_at")
+#         t (os/time)]))
+
 (defn main [&]
   (setup)
   (let [args (argparse ;argparse-params)]
     (when (nil? args)
       (os/exit 1))
+    (->> (get-completed-new args)
+        # (sort-by sort-by-completed-at) TODO
+        (reverse)
+        (display-new))))
+
+(comment
+  (setup)
+
+  (let [args {"days" "7"
+              "project" "personal"}]
+    (-> (get-completed-new args)))
+
+  (get-project-id "chores")
+
+  (get-project-ids "personal")
+
+  (let [args {"days" "7"
+              "project" "chores"}]
     (-> (get-completed args)
-        (display args))))
+        (get "items"))))
+                  
