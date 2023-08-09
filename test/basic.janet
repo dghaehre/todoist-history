@@ -20,4 +20,17 @@
     (is (= "yesterday " s3))
     (is (= "today     " s4))))
 
+(deftest create-time
+  # Not accurate
+  (is (= 1608940800 (main/create-time 2021 1 8))))
+
+(deftest test-sort
+  (let [items @[{:name "a" "completed_at" "2021-01-01T08:35:02.000000Z"}
+                {:name "b" "completed_at" "2021-01-02T08:35:02.000000Z"}
+                {:name "c" "completed_at" "2021-01-03T08:35:02.000000Z"}]
+        [one two three] (-> (sort-by main/sort-by-completed-at items) (reverse))]
+    (is (= "c" (get one :name)))
+    (is (= "b" (get two :name)))
+    (is (= "a" (get three :name)))))
+
 (run-tests!)

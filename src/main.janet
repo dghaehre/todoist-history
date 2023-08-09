@@ -34,6 +34,10 @@
         {:year y :month m :month-day d} (os/date t)]
     (string y "-" (+ 1 m) "-" (+ 1 d) "T00:00:00")))
 
+(defn str->date [str]
+  (let [date '{:main (* (<- :d+) "-" (<- :d+) "-" (<- :d+))}]
+    (peg/match date str)))
+
 # TODO: monday, tuesday etc.
 (defn display-date [time str]
   ```
@@ -51,8 +55,7 @@
           {:year yy :month mm :month-day dd} (os/date t)]
       (and (= y yy) (= m (+ 1 mm)) (= d (+ 1 dd)))))
 
-  (let [date '{:main (* (<- :d+) "-" (<- :d+) "-" (<- :d+))}
-        m          (peg/match date str)]
+  (let [m (str->date str)]
     (if (nil? m) ""
       (let [[y mm d] m
             ynumber (-> y   (int/s64) (int/to-number))
@@ -109,17 +112,6 @@
     (get-children org-id projects @[(project->result org-project)])))
 
 
-(defn get-completed [args]
-  (let [days          (-> (get args "days" "0") (int/s64) (int/to-number))
-        limit         (string "limit=" (get args "limit" "200"))
-        since         (if (= days 0) "" (string "&since=" (get-time-str days)))
-        project-name  (get args "project")
-        project-id    (if (or (= project-name "") (nil? project-name)) nil
-                          (get-project-id project-name))
-        project       (if (nil? project-id) "" (string "&project_id=" project-id))]
-    (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since project)
-        (get-todoist))))
-
 (defn merge-items-and-project-ids [{:items items :project-ids project-ids}]
   (defn merge-project [item]
     (let [project-id (get item "project_id")
@@ -131,8 +123,6 @@
         (merge item {:project-name (get project :name)}))))
   (map merge-project items))
 
-# {:items @[]
-#  :projects @[]}
 (defn make-result [{"items" items "projects" projects}]
   {:items items
    :project-ids (map (fn [p] {:name (get p "name") :id (get p "id")}) projects)})
@@ -140,7 +130,7 @@
 # If we have multiple project ids, we need to multiple requests
 # or else we only need to do one request, but then we have no way of knowing
 # all of the projects that are in the result..
-(defn get-completed-new [args]
+(defn get-completed [args]
  (let [days          (-> (get args "days" "0") (int/s64) (int/to-number))
        limit         (string "limit=" (get args "limit" "200"))
        since         (if (= days 0) "" (string "&since=" (get-time-str days)))
@@ -168,18 +158,6 @@
        (merge-items-and-project-ids {:items items
                                      :project-ids project-ids})))))
 
-      
-
-
-(defn get-completed-with-projects-ids [limit since project-ids]
-  (var result @[])
-  (loop [p :in project-ids]
-    (let [project (string "&project_id=" (get p :id))
-          res     (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since project)
-                      (get-todoist))]
-      (array/push result res))) # Hm...............
-  result)
-
 (defn string-with-width [width & xs]
   (let [s (string ;xs)
         l (length s)]
@@ -201,24 +179,7 @@
     (map attach items)
     (map attach-flag items)))
 
-# (defn attach-projects [items projects-ids])
-
-(defn display [data args]
-  (let [items                 (get data "items")
-        projects              (get data "projects")
-        project-flag          (get args "project")
-        project-name-length   (if (nil? project-flag) 10 (+ 1 (length project-flag)))
-        now                   (os/time)]
-    (loop [i :in (-> (reverse items) (attach-project projects project-flag))]
-      (let [completed     (->> (get i "completed_at") (display-date now))
-            project-name  (string-with-width project-name-length "#" (get i :project-name "no content"))
-            content       (string-with-width 50 (get i "content" "no content"))]
-        (print (color :dark-gray completed) " "
-               (color :cyan project-name) " "
-               content)))
-    (print (string "Total: " (length items)))))
-
-(defn display-new [items]
+(defn display [items]
   (let [project-name-length   20 # TODO
         now                   (os/time)]
     (loop [i :in items]
@@ -230,48 +191,42 @@
                content)))
     (print (string "Total: " (length items)))))
 
+(defn create-time [year month day]
+  "Manually creating time from 1970
+  Not accurate and very hacky.."
+  (let [y (-> (- year 1970) (* 60 60 24 365))
+        m (-> (- month 1)   (* 60 60 24 30))
+        d (-> (- day 1)     (* 60 60 24))]
+    (+ y m d)))
 
-# (defn display-new [items project-ids]
-#   "items with :project-name"
-#   (let [project-name-length   10 # TODO: Get project name length from project-ids
-#         now                   (os/time)]
-#     (loop [i :in (reverse items)]
-#       (printf "%+v" i)
-#       (let [completed     (->> (get i "completed_at") (display-date now))
-#             project-name  (string-with-width project-name-length "#" (get i :project-name "no content"))
-#             content       (string-with-width 50 (get i "content" "no content"))]
-#         (print (color :dark-gray completed) " "
-#                (color :cyan project-name) " "
-#                content)))
-#     (print (string "Total: " (length items)))))
-
-# (defn sort-by-completed-at [item]
-#   (let [c (get item "completed_at")
-#         t (os/time)]))
+(defn sort-by-completed-at [item]
+  "Since we dont have a good way of sorting by date, we create a `time`
+   manually by adding up all the days
+   the number of days since the item was completed"
+  (let [c (get item "completed_at")
+        [year month day] (map |(-> (int/u64 $) (int/to-number)) (str->date c))]
+    (create-time year month day)))
 
 (defn main [&]
   (setup)
   (let [args (argparse ;argparse-params)]
     (when (nil? args)
       (os/exit 1))
-    (->> (get-completed-new args)
-        # (sort-by sort-by-completed-at) TODO
-        (reverse)
-        (display-new))))
+    (->> (get-completed args)
+        (sort-by sort-by-completed-at)
+        (display))))
 
 (comment
   (setup)
 
+  (let [y -10]
+    (* y 60 60 24 365))
+
   (let [args {"days" "7"
               "project" "personal"}]
-    (-> (get-completed-new args)))
+    (-> (get-completed args)))
 
   (get-project-id "chores")
 
-  (get-project-ids "personal")
+  (get-project-ids "personal"))
 
-  (let [args {"days" "7"
-              "project" "chores"}]
-    (-> (get-completed args)
-        (get "items"))))
-                  
