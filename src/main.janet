@@ -180,7 +180,10 @@
     (map attach-flag items)))
 
 (defn display [items]
-  (let [project-name-length   20 # TODO
+  (let [project-name-length   (->> (map |(get $ :project-name) items)
+                                   (map length)
+                                   (apply max)
+                                   (+ 2))
         now                   (os/time)]
     (loop [i :in items]
       (let [completed     (->> (get i "completed_at") (display-date now))
