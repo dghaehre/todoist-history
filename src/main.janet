@@ -153,7 +153,7 @@
        (loop [{:id id :name name} :in project-ids]
          (def res (-> (string "https://api.todoist.com/sync/v9/completed/get_all?" limit since (string "&project_id=" id))
                       (get-todoist)
-                      (get "items")))
+                      (get "items" @[])))
          (array/push items ;res))
        (merge-items-and-project-ids {:items items
                                      :project-ids project-ids})))))
