@@ -28,11 +28,19 @@
         res   (sh/exec-slurp "curl" "-s" "-X" "GET" path "-H" auth)]
     (json/decode res)))
 
+(defn with-leading-zero [n]
+  (if (< n 10)
+    (string "0" n)
+    (string n)))
+
 (defn get-time-str [days]
   (let [days-in-seconds (* 60 60 24)
         t (- (os/time) (* days days-in-seconds))
         {:year y :month m :month-day d} (os/date t)]
-    (string y "-" (+ 1 m) "-" (+ 1 d) "T00:00:00")))
+    (string y "-" (with-leading-zero (+ 1 m)) "-" (with-leading-zero (+ 1 d)) "T00:00:00")))
+
+(comment
+  (get-time-str 1))
 
 (defn str->date [str]
   (let [date '{:main (* (<- :d+) "-" (<- :d+) "-" (<- :d+))}]
@@ -124,6 +132,8 @@
   (map merge-project items))
 
 (defn make-result [{"items" items "projects" projects}]
+  (assert (not (nil? items)) "unexpected: item is nil")
+  (assert (not (nil? projects)) "unexpected: projects is nil")
   {:items items
    :project-ids (map (fn [p] {:name (get p "name") :id (get p "id")}) projects)})
 
