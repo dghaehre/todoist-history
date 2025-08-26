@@ -2,6 +2,9 @@
 (import spork/json :as json)
 (use spork/argparse)
 (use ./colors)
+(use judge)
+
+(def token-file-name ".todoist.token")
 
 (def argparse-params
   ["Get your todoist history"
@@ -15,10 +18,25 @@
                :help "project"
                :short "p"}])
 
+(def token-help ``
+  You might need to create a file called ~/.todoist.token
+  with your todoist token in it.
+
+  To get your token, go to https://www.todoist.com/nb/help/articles/find-your-api-token-Jpzx9IIlB  
+  and copy the token from there into a file called ~/.todoist.token``)
+
+
 (defn setup []
-  (let [path  (string (os/getenv "HOME") "/.todoist.token")
-        token (-> (slurp path) (string/trim))]
-    (setdyn :todoist/token token)))
+  (try
+    (let [path  (string (os/getenv "HOME") "/" token-file-name)
+          token (-> (slurp path) (string/trim))]
+      (setdyn :todoist/token token))
+    ([err fib]
+     (do
+       (print err)
+       (print "")
+       (print token-help)
+       (os/exit 1)))))
 
 (defn token []
   (dyn :todoist/token))
@@ -75,6 +93,11 @@
           # Default:
           (string d "/" mm "/" y))))))
 
+(test (display-date (os/time) "2023-01-22T08:35:02.000000Z") "22/01/2023")
+(test (display-date (os/time) "2021-12-01T08:35") "01/12/2021")
+(test (display-date (os/time) (get-time-str 1)) "yesterday ")
+(test (display-date (os/time) (get-time-str 0)) "today     ")
+
 (defn get-project-id [name]
   "Gets project id based on name"
   (let [id (as?-> (get-todoist "https://api.todoist.com/rest/v2/projects") _
@@ -118,7 +141,6 @@
       (error (string "No such project with name: " name)))
 
     (get-children org-id projects @[(project->result org-project)])))
-
 
 (defn merge-items-and-project-ids [{:items items :project-ids project-ids}]
   (defn merge-project [item]
@@ -175,6 +197,9 @@
       (string/slice s 0 width)
       (string s (string/repeat " " (- width l))))))
 
+(test (string-with-width 10 "hello janet!!!") "hello jane")
+(test (string-with-width 10 "hello") "hello     ")
+
 (defn attach-project [items projects project-flag]
   (defn attach [i]
     (let [name (as-> (get i "project_id") _
@@ -212,6 +237,8 @@
         d (-> (- day 1)     (* 60 60 24))]
     (+ y m d)))
 
+(test (create-time 2021 1 8) 1608940800)
+
 (defn sort-by-completed-at [item]
   "Since we dont have a good way of sorting by date, we create a `time`
    manually by adding up all the days
@@ -219,6 +246,18 @@
   (let [c (get item "completed_at")
         [year month day] (map |(-> (int/u64 $) (int/to-number)) (str->date c))]
     (create-time year month day)))
+
+(deftest "test sort"
+  (let [items @[{:name "a" "completed_at" "2021-01-01T08:35:02.000000Z"}
+                {:name "b" "completed_at" "2021-01-02T08:35:02.000000Z"}
+                {:name "c" "completed_at" "2021-01-03T08:35:02.000000Z"}]]
+    (test (-> (sort-by sort-by-completed-at items) (reverse))
+      @[{"completed_at" "2021-01-03T08:35:02.000000Z"
+         :name "c"}
+        {"completed_at" "2021-01-02T08:35:02.000000Z"
+         :name "b"}
+        {"completed_at" "2021-01-01T08:35:02.000000Z"
+         :name "a"}])))
 
 (defn main [&]
   (setup)

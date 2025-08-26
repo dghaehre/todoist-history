@@ -2,7 +2,8 @@
   :name "todoist-history"
   :description ```A cli that outputs your todoist history ```
   :dependencies ["https://github.com/janet-lang/spork"
-                 "https://github.com/pyrmont/testament"]
+                 {:url "https://github.com/ianthehenry/judge.git"
+                  :tag "v2.9.0"}]
   :version "0.0.1")
 
 (declare-executable
